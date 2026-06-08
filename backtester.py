@@ -1,56 +1,14 @@
-import time
 import pandas as pd
 import numpy as np
-import requests
 import config
+import coingecko
 from strategies import STRATEGY_REGISTRY
-
-_CG_OHLC_URL = "https://api.coingecko.com/api/v3/coins/bitcoin/ohlc"
-_MAX_RETRIES  = 3
-_RETRY_WAIT   = 60   # seconds to wait after a 429 before retrying
-
-
-def _get_with_backoff(url: str, params: dict) -> requests.Response:
-    """GET with exponential backoff on 429 rate-limit responses."""
-    for attempt in range(1, _MAX_RETRIES + 1):
-        resp = requests.get(url, params=params, timeout=15)
-        if resp.status_code != 429:
-            resp.raise_for_status()
-            return resp
-        wait = _RETRY_WAIT * attempt          # 60 s, 120 s, 180 s
-        print(f"  [!] CoinGecko rate limit (429) — waiting {wait}s before retry {attempt}/{_MAX_RETRIES}…")
-        time.sleep(wait)
-    # Final attempt — let the caller handle any error
-    resp = requests.get(url, params=params, timeout=15)
-    resp.raise_for_status()
-    return resp
 
 
 def fetch_historical_data() -> pd.DataFrame:
-    """
-    Pull OHLC data from CoinGecko's free public API — no key required.
-    CoinGecko row: [timestamp_ms, open, high, low, close]
-    """
+    """Pull OHLC data from CoinGecko — 4h candles for CG_BACKTEST_DAYS."""
     print(f"  Fetching {config.CG_BACKTEST_DAYS}-day BTC/USD OHLC from CoinGecko…")
-    resp = _get_with_backoff(
-        _CG_OHLC_URL,
-        {"vs_currency": "usd", "days": config.CG_BACKTEST_DAYS},
-    )
-
-    raw = resp.json()   # [[timestamp_ms, open, high, low, close], ...]
-    df = pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close"])
-    df = df.astype({
-        "timestamp": "int64",
-        "open":      "float64",
-        "high":      "float64",
-        "low":       "float64",
-        "close":     "float64",
-    })
-    df["volume"]   = 0.0   # CoinGecko OHLC has no volume; strategies don't use it
-    df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms")
-    df.sort_values("datetime", inplace=True)
-    df.reset_index(drop=True, inplace=True)
-
+    df = coingecko.get_ohlc(config.CG_BACKTEST_DAYS)
     print(f"  Received {len(df)} candles  ({df['datetime'].iloc[0].date()} → {df['datetime'].iloc[-1].date()})")
     return df
 
@@ -109,7 +67,6 @@ def _run_backtest(
     max_dd = float(drawdown.min())
 
     eq_ret = eq_series.pct_change().dropna()
-    # Derive annualisation factor from actual candle spacing rather than config
     if len(df) > 1:
         interval_ms  = int(df["timestamp"].iloc[1]) - int(df["timestamp"].iloc[0])
         interval_min = interval_ms / (1000 * 60)
@@ -144,17 +101,12 @@ def run_all_backtests(df: pd.DataFrame) -> dict[str, dict]:
 
 
 def pick_winner(results: dict[str, dict]) -> str:
-    """
-    Score each strategy by a weighted composite:
-      60% total return  +  25% Sharpe  (normalised)  +  15% win rate
-    Max drawdown is used as a tie-breaker penalty.
-    """
     if not results:
         raise ValueError("No backtest results to score.")
 
     returns = {k: v["total_return"] for k, v in results.items()}
     sharpes = {k: v["sharpe_ratio"] for k, v in results.items()}
-    wrates = {k: v["win_rate"] for k, v in results.items()}
+    wrates  = {k: v["win_rate"]     for k, v in results.items()}
 
     def _norm(d: dict) -> dict:
         vals = list(d.values())
@@ -166,10 +118,7 @@ def pick_winner(results: dict[str, dict]) -> str:
     ns = _norm(sharpes)
     nw = _norm(wrates)
 
-    scores = {
-        k: 0.60 * nr[k] + 0.25 * ns[k] + 0.15 * nw[k]
-        for k in results
-    }
+    scores = {k: 0.60 * nr[k] + 0.25 * ns[k] + 0.15 * nw[k] for k in results}
     return max(scores, key=scores.__getitem__)
 
 
