@@ -50,6 +50,12 @@
   }
   .hdr-left { display: flex; align-items: center; gap: 12px; }
   .logo { font-weight: 700; font-size: 16px; letter-spacing: -0.3px; }
+  .uptime {
+    font-size: 11px;
+    color: var(--subtle);
+    font-family: var(--mono);
+  }
+
   .live-pill {
     background: rgba(63,185,80,.15);
     color: var(--green);
@@ -302,6 +308,7 @@
   <div class="hdr-left">
     <span class="logo">&#x26A1; Quant Bot</span>
     <span class="live-pill">LIVE</span>
+    <span class="uptime" id="uptime"></span>
   </div>
   <div class="hdr-right">
     <span class="clock" id="clock">--:--:--</span>
@@ -519,6 +526,15 @@
 const $  = id => document.getElementById(id);
 const fmt = n => n == null ? '&mdash;' : '$' + parseFloat(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
 
+function fmtUptime(seconds) {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `Uptime: ${d}d ${h}h ${m}m`;
+  if (h > 0) return `Uptime: ${h}h ${m}m`;
+  return `Uptime: ${m}m`;
+}
+
 /* ── Clock ── */
 function tickClock() {
   $('clock').textContent = new Date().toUTCString().slice(17, 25) + ' UTC';
@@ -570,6 +586,10 @@ async function refreshStatus() {
 
     const pnl  = parseFloat(s.total_pnl);
     const dPnl = parseFloat(s.daily_pnl);
+
+    // Uptime
+    if (s.uptime_seconds != null)
+      $('uptime').textContent = fmtUptime(s.uptime_seconds);
 
     // Stats grid
     $('s-equity').textContent    = '$' + parseFloat(s.equity).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});

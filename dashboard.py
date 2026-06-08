@@ -16,16 +16,18 @@ app.config["TEMPLATES_AUTO_RELOAD"] = True   # never serve a stale template
 _trader = None
 _backtest_results: dict = {}
 _winner: str = ""
+_start_time: float = 0.0
 
 # Chart data cache — refreshed at most once per 60 seconds
 _chart_cache: dict = {"ts": 0.0, "data": {}}
 
 
 def configure(trader, backtest_results: dict, winner: str):
-    global _trader, _backtest_results, _winner
+    global _trader, _backtest_results, _winner, _start_time
     _trader = trader
     _backtest_results = backtest_results
     _winner = winner
+    _start_time = _time.time()
 
 
 # ------------------------------------------------------------------ #
@@ -41,7 +43,9 @@ def index():
 def api_status():
     if _trader is None:
         return jsonify({"error": "Trader not initialised"}), 503
-    return jsonify(_trader.status())
+    data = _trader.status()
+    data["uptime_seconds"] = int(_time.time() - _start_time) if _start_time else 0
+    return jsonify(data)
 
 
 @app.route("/api/trades")
