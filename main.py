@@ -45,7 +45,7 @@ def check_config():
 def main():
     print("=" * 60)
     print("  Bybit Algo Trading Bot  (Paper Trading)")
-    print("  Market data: api.binance.com  |  Orders: paper only (no real trades)")
+    print("  Market data: CoinGecko API  |  Orders: paper only (no real trades)")
     print("  No real funds at risk")
     print("=" * 60)
 
@@ -63,7 +63,7 @@ def main():
     print("  OK  trades.db ready")
 
     # 3. Fetch historical data
-    print("\n[2/5] Fetching historical data from Binance…")
+    print("\n[2/5] Fetching historical data from CoinGecko…")
     try:
         df = fetch_historical_data()
     except Exception as e:

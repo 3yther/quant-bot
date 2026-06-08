@@ -7,37 +7,28 @@ from strategies import STRATEGY_REGISTRY
 
 def fetch_historical_data() -> pd.DataFrame:
     """
-    Pull up to 1000 candles from Binance public klines API.
-    No API key required. Binance does not block cloud server IPs.
+    Pull OHLC data from CoinGecko's free public API — no key required.
+    days=90 returns daily candles (~90 rows).
+    CoinGecko row: [timestamp_ms, open, high, low, close]
     """
-    interval_minutes = int(config.KLINE_INTERVAL)
-    periods_per_day  = (24 * 60) // interval_minutes
-    needed = min(config.BACKTEST_DAYS * periods_per_day + 210, 1000)  # +210 for MA warm-up
-
-    print(f"  Fetching {needed} x {config.BINANCE_INTERVAL} candles for {config.SYMBOL} from Binance…")
+    print(f"  Fetching {config.CG_BACKTEST_DAYS}-day BTC/USD OHLC from CoinGecko…")
     resp = requests.get(
-        "https://api.binance.com/api/v3/klines",
-        params={"symbol": config.SYMBOL, "interval": config.BINANCE_INTERVAL, "limit": needed},
+        "https://api.coingecko.com/api/v3/coins/bitcoin/ohlc",
+        params={"vs_currency": "usd", "days": config.CG_BACKTEST_DAYS},
         timeout=15,
     )
     resp.raise_for_status()
 
-    # Binance row: [open_time, open, high, low, close, volume, close_time, ...]
-    raw = resp.json()
-    df = pd.DataFrame(raw, columns=[
-        "timestamp", "open", "high", "low", "close", "volume",
-        "close_time", "quote_volume", "trades",
-        "taker_buy_base", "taker_buy_quote", "ignore",
-    ])
-    df = df[["timestamp", "open", "high", "low", "close", "volume"]]
+    raw = resp.json()   # [[timestamp_ms, open, high, low, close], ...]
+    df = pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close"])
     df = df.astype({
         "timestamp": "int64",
         "open":      "float64",
         "high":      "float64",
         "low":       "float64",
         "close":     "float64",
-        "volume":    "float64",
     })
+    df["volume"]   = 0.0   # CoinGecko OHLC has no volume; strategies don't use it
     df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms")
     df.sort_values("datetime", inplace=True)
     df.reset_index(drop=True, inplace=True)
@@ -100,7 +91,13 @@ def _run_backtest(
     max_dd = float(drawdown.min())
 
     eq_ret = eq_series.pct_change().dropna()
-    periods_per_year = 365 * (24 * 60 / int(config.KLINE_INTERVAL))
+    # Derive annualisation factor from actual candle spacing rather than config
+    if len(df) > 1:
+        interval_ms  = int(df["timestamp"].iloc[1]) - int(df["timestamp"].iloc[0])
+        interval_min = interval_ms / (1000 * 60)
+        periods_per_year = 365 * 24 * 60 / interval_min
+    else:
+        periods_per_year = 365
     sharpe = (
         float(eq_ret.mean() / eq_ret.std() * np.sqrt(periods_per_year))
         if eq_ret.std() > 0

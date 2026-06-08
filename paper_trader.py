@@ -30,31 +30,29 @@ class PaperTrader:
 
     def _fetch_price(self) -> float:
         resp = requests.get(
-            "https://api.binance.com/api/v3/ticker/price",
-            params={"symbol": config.SYMBOL},
+            "https://api.coingecko.com/api/v3/simple/price",
+            params={"ids": "bitcoin", "vs_currencies": "usd"},
             timeout=10,
         )
         resp.raise_for_status()
-        return float(resp.json()["price"])
+        return float(resp.json()["bitcoin"]["usd"])
 
-    def _fetch_candles(self, limit: int = 250) -> pd.DataFrame:
+    def _fetch_candles(self) -> pd.DataFrame:
+        # days=30 → CoinGecko returns 4-hour candles (~180 rows), enough for
+        # RSI/MACD/BB/MA50 signal generation.
         resp = requests.get(
-            "https://api.binance.com/api/v3/klines",
-            params={"symbol": config.SYMBOL, "interval": config.BINANCE_INTERVAL, "limit": limit},
+            "https://api.coingecko.com/api/v3/coins/bitcoin/ohlc",
+            params={"vs_currency": "usd", "days": config.CG_SIGNAL_DAYS},
             timeout=15,
         )
         resp.raise_for_status()
-        raw = resp.json()
-        df = pd.DataFrame(raw, columns=[
-            "timestamp", "open", "high", "low", "close", "volume",
-            "close_time", "quote_volume", "trades",
-            "taker_buy_base", "taker_buy_quote", "ignore",
-        ])
-        df = df[["timestamp", "open", "high", "low", "close", "volume"]]
+        raw = resp.json()   # [[timestamp_ms, open, high, low, close], ...]
+        df = pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close"])
         df = df.astype({
             "timestamp": "int64", "open": "float64", "high": "float64",
-            "low": "float64", "close": "float64", "volume": "float64",
+            "low": "float64", "close": "float64",
         })
+        df["volume"]   = 0.0
         df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms")
         df.sort_values("datetime", inplace=True)
         df.reset_index(drop=True, inplace=True)
