@@ -21,7 +21,7 @@ def ma_crossover_signals(df: pd.DataFrame) -> pd.Series:
     return signal
 
 
-def rsi_signals(df: pd.DataFrame, period: int = 14, oversold: float = 30, overbought: float = 70) -> pd.Series:
+def rsi_signals(df: pd.DataFrame, period: int = 14, oversold: float = 40, overbought: float = 60) -> pd.Series:
     """
     RSI mean-reversion: buy when RSI crosses up through oversold,
     sell when it crosses down through overbought.
@@ -67,7 +67,7 @@ def macd_signals(df: pd.DataFrame, fast: int = 12, slow: int = 26, sig: int = 9)
     return signal
 
 
-def bollinger_bands_signals(df: pd.DataFrame, period: int = 20, num_std: float = 2.0) -> pd.Series:
+def bollinger_bands_signals(df: pd.DataFrame, period: int = 20, num_std: float = 1.5) -> pd.Series:
     """
     Bollinger Bands mean-reversion: buy when price crosses below the lower
     band, sell when price crosses above the upper band.
@@ -93,7 +93,7 @@ def bollinger_bands_signals(df: pd.DataFrame, period: int = 20, num_std: float =
 
 STRATEGY_REGISTRY = {
     "MA Crossover (50/200)": ma_crossover_signals,
-    "RSI (30/70)": rsi_signals,
+    "RSI (40/60)": rsi_signals,
     "MACD Crossover": macd_signals,
-    "Bollinger Bands (20/2σ)": bollinger_bands_signals,
+    "Bollinger Bands (20/1.5σ)": bollinger_bands_signals,
 }
