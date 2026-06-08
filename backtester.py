@@ -1,23 +1,41 @@
+import time
 import pandas as pd
 import numpy as np
 import requests
 import config
 from strategies import STRATEGY_REGISTRY
 
+_CG_OHLC_URL = "https://api.coingecko.com/api/v3/coins/bitcoin/ohlc"
+_MAX_RETRIES  = 3
+_RETRY_WAIT   = 60   # seconds to wait after a 429 before retrying
+
+
+def _get_with_backoff(url: str, params: dict) -> requests.Response:
+    """GET with exponential backoff on 429 rate-limit responses."""
+    for attempt in range(1, _MAX_RETRIES + 1):
+        resp = requests.get(url, params=params, timeout=15)
+        if resp.status_code != 429:
+            resp.raise_for_status()
+            return resp
+        wait = _RETRY_WAIT * attempt          # 60 s, 120 s, 180 s
+        print(f"  [!] CoinGecko rate limit (429) — waiting {wait}s before retry {attempt}/{_MAX_RETRIES}…")
+        time.sleep(wait)
+    # Final attempt — let the caller handle any error
+    resp = requests.get(url, params=params, timeout=15)
+    resp.raise_for_status()
+    return resp
+
 
 def fetch_historical_data() -> pd.DataFrame:
     """
     Pull OHLC data from CoinGecko's free public API — no key required.
-    days=90 returns daily candles (~90 rows).
     CoinGecko row: [timestamp_ms, open, high, low, close]
     """
     print(f"  Fetching {config.CG_BACKTEST_DAYS}-day BTC/USD OHLC from CoinGecko…")
-    resp = requests.get(
-        "https://api.coingecko.com/api/v3/coins/bitcoin/ohlc",
-        params={"vs_currency": "usd", "days": config.CG_BACKTEST_DAYS},
-        timeout=15,
+    resp = _get_with_backoff(
+        _CG_OHLC_URL,
+        {"vs_currency": "usd", "days": config.CG_BACKTEST_DAYS},
     )
-    resp.raise_for_status()
 
     raw = resp.json()   # [[timestamp_ms, open, high, low, close], ...]
     df = pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close"])

@@ -62,13 +62,17 @@ def main():
     db.init_db()
     print("  OK  trades.db ready")
 
-    # 3. Fetch historical data
+    # 3. Fetch historical data — retry loop so a transient 429 doesn't cause
+    #    Railway to restart the container and immediately hammer the API again.
     print("\n[2/5] Fetching historical data from CoinGecko…")
-    try:
-        df = fetch_historical_data()
-    except Exception as e:
-        print(f"  [!] Failed to fetch data: {e}")
-        sys.exit(1)
+    df = None
+    while df is None:
+        try:
+            df = fetch_historical_data()
+        except Exception as e:
+            print(f"  [!] Data fetch failed: {e}")
+            print("  [!] Waiting 5 minutes before retrying…")
+            time.sleep(300)
 
     # 4. Backtest all registered strategies
     print(f"\n[3/5] Running backtests ({len(STRATEGY_REGISTRY)} strategies)…")
