@@ -1,49 +1,43 @@
 import pandas as pd
 import numpy as np
-from pybit.unified_trading import HTTP
+import requests
 import config
 from strategies import STRATEGY_REGISTRY
 
 
 def fetch_historical_data() -> pd.DataFrame:
     """
-    Pull up to 1000 candles of KLINE_INTERVAL data from Bybit live market data,
-    then trim to the most recent BACKTEST_DAYS worth.
-    Kline is a public endpoint — no API key required.
+    Pull up to 1000 candles from Binance public klines API.
+    No API key required. Binance does not block cloud server IPs.
     """
-    # Live endpoint: testnet blocks Railway IPs with 403
-    session = HTTP(testnet=False)
-
     interval_minutes = int(config.KLINE_INTERVAL)
-    periods_per_day = (24 * 60) // interval_minutes
+    periods_per_day  = (24 * 60) // interval_minutes
     needed = min(config.BACKTEST_DAYS * periods_per_day + 210, 1000)  # +210 for MA warm-up
 
-    print(f"  Fetching {needed} x {config.KLINE_INTERVAL}m candles for {config.SYMBOL} from live market data…")
-    resp = session.get_kline(
-        category=config.CATEGORY,
-        symbol=config.SYMBOL,
-        interval=config.KLINE_INTERVAL,
-        limit=needed,
+    print(f"  Fetching {needed} x {config.BINANCE_INTERVAL} candles for {config.SYMBOL} from Binance…")
+    resp = requests.get(
+        "https://api.binance.com/api/v3/klines",
+        params={"symbol": config.SYMBOL, "interval": config.BINANCE_INTERVAL, "limit": needed},
+        timeout=15,
     )
+    resp.raise_for_status()
 
-    if resp["retCode"] != 0:
-        raise RuntimeError(f"Bybit API error: {resp['retMsg']}")
-
-    raw = resp["result"]["list"]
-    df = pd.DataFrame(
-        raw,
-        columns=["timestamp", "open", "high", "low", "close", "volume", "turnover"],
-    )
-    df = df.astype(
-        {
-            "timestamp": "int64",
-            "open": "float64",
-            "high": "float64",
-            "low": "float64",
-            "close": "float64",
-            "volume": "float64",
-        }
-    )
+    # Binance row: [open_time, open, high, low, close, volume, close_time, ...]
+    raw = resp.json()
+    df = pd.DataFrame(raw, columns=[
+        "timestamp", "open", "high", "low", "close", "volume",
+        "close_time", "quote_volume", "trades",
+        "taker_buy_base", "taker_buy_quote", "ignore",
+    ])
+    df = df[["timestamp", "open", "high", "low", "close", "volume"]]
+    df = df.astype({
+        "timestamp": "int64",
+        "open":      "float64",
+        "high":      "float64",
+        "low":       "float64",
+        "close":     "float64",
+        "volume":    "float64",
+    })
     df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms")
     df.sort_values("datetime", inplace=True)
     df.reset_index(drop=True, inplace=True)

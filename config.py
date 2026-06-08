@@ -12,7 +12,8 @@ EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "")
 
 SYMBOL = "BTCUSDT"
 CATEGORY = "linear"
-KLINE_INTERVAL = "240"       # 4-hour candles
+KLINE_INTERVAL = "240"       # 4-hour candles (Bybit format, kept for period math)
+BINANCE_INTERVAL = "4h"      # Binance format — must match KLINE_INTERVAL
 BACKTEST_DAYS = 90
 INITIAL_BALANCE = 10000.0    # Paper trading starting USDT
 TRADE_SIZE_PCT = 0.10        # Risk 10% of current balance per trade

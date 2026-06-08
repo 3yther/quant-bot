@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Callable
 
 import pandas as pd
-from pybit.unified_trading import HTTP
+import requests
 
 import config
 import database as db
@@ -21,40 +21,36 @@ class PaperTrader:
         self.entry_price    = 0.0
         self.current_price  = 0.0
         self._trades: list[dict] = []
-        self._lock   = threading.Lock()
+        self._lock    = threading.Lock()
         self._running = False
-        # Live endpoint for market data — testnet blocks Railway IPs with 403.
-        # Kline and tickers are public; no key needed.
-        self._market_session = HTTP(testnet=False)
-        # Testnet session kept for any future order placement — no real orders are placed.
-        self._order_session = HTTP(
-            testnet=True,
-            api_key=config.BYBIT_API_KEY,
-            api_secret=config.BYBIT_API_SECRET,
-        )
 
     # ------------------------------------------------------------------ #
     #  Data helpers                                                        #
     # ------------------------------------------------------------------ #
 
     def _fetch_price(self) -> float:
-        resp = self._market_session.get_tickers(
-            category=config.CATEGORY, symbol=config.SYMBOL
+        resp = requests.get(
+            "https://api.binance.com/api/v3/ticker/price",
+            params={"symbol": config.SYMBOL},
+            timeout=10,
         )
-        return float(resp["result"]["list"][0]["lastPrice"])
+        resp.raise_for_status()
+        return float(resp.json()["price"])
 
     def _fetch_candles(self, limit: int = 250) -> pd.DataFrame:
-        resp = self._market_session.get_kline(
-            category=config.CATEGORY,
-            symbol=config.SYMBOL,
-            interval=config.KLINE_INTERVAL,
-            limit=limit,
+        resp = requests.get(
+            "https://api.binance.com/api/v3/klines",
+            params={"symbol": config.SYMBOL, "interval": config.BINANCE_INTERVAL, "limit": limit},
+            timeout=15,
         )
-        raw = resp["result"]["list"]
-        df = pd.DataFrame(
-            raw,
-            columns=["timestamp", "open", "high", "low", "close", "volume", "turnover"],
-        )
+        resp.raise_for_status()
+        raw = resp.json()
+        df = pd.DataFrame(raw, columns=[
+            "timestamp", "open", "high", "low", "close", "volume",
+            "close_time", "quote_volume", "trades",
+            "taker_buy_base", "taker_buy_quote", "ignore",
+        ])
+        df = df[["timestamp", "open", "high", "low", "close", "volume"]]
         df = df.astype({
             "timestamp": "int64", "open": "float64", "high": "float64",
             "low": "float64", "close": "float64", "volume": "float64",
