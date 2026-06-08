@@ -7,20 +7,18 @@ from strategies import STRATEGY_REGISTRY
 
 def fetch_historical_data() -> pd.DataFrame:
     """
-    Pull up to 1000 candles of KLINE_INTERVAL data from Bybit testnet,
+    Pull up to 1000 candles of KLINE_INTERVAL data from Bybit live market data,
     then trim to the most recent BACKTEST_DAYS worth.
+    Kline is a public endpoint — no API key required.
     """
-    session = HTTP(
-        testnet=True,
-        api_key=config.BYBIT_API_KEY,
-        api_secret=config.BYBIT_API_SECRET,
-    )
+    # Live endpoint: testnet blocks Railway IPs with 403
+    session = HTTP(testnet=False)
 
     interval_minutes = int(config.KLINE_INTERVAL)
     periods_per_day = (24 * 60) // interval_minutes
     needed = min(config.BACKTEST_DAYS * periods_per_day + 210, 1000)  # +210 for MA warm-up
 
-    print(f"  Fetching {needed} x {config.KLINE_INTERVAL}m candles for {config.SYMBOL} from testnet…")
+    print(f"  Fetching {needed} x {config.KLINE_INTERVAL}m candles for {config.SYMBOL} from live market data…")
     resp = session.get_kline(
         category=config.CATEGORY,
         symbol=config.SYMBOL,

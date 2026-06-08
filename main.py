@@ -1,9 +1,10 @@
 """
-Bybit Testnet Algorithmic Trading Bot
+Bybit Algorithmic Trading Bot
 --------------------------------------
+Fetches market data from Bybit live API (api.bybit.com).
 Backtests all registered strategies over 90 days of historical data,
 runs the winner in paper-trading mode, and serves a live
-dashboard at http://localhost:5001
+dashboard at http://localhost:5001. No real orders are placed.
 """
 
 import sys
@@ -43,8 +44,9 @@ def check_config():
 
 def main():
     print("=" * 60)
-    print("  Bybit Testnet Algo Trading Bot")
-    print("  All orders are PAPER — no real funds at risk")
+    print("  Bybit Algo Trading Bot  (Paper Trading)")
+    print("  Market data: api.bybit.com  |  Orders: testnet (paper only)")
+    print("  No real funds at risk")
     print("=" * 60)
 
     # Show every registered strategy so it's obvious what will be backtested
@@ -61,7 +63,7 @@ def main():
     print("  OK  trades.db ready")
 
     # 3. Fetch historical data
-    print("\n[2/5] Fetching historical data from Bybit testnet…")
+    print("\n[2/5] Fetching historical data from Bybit live market data…")
     try:
         df = fetch_historical_data()
     except Exception as e:

@@ -23,7 +23,11 @@ class PaperTrader:
         self._trades: list[dict] = []
         self._lock   = threading.Lock()
         self._running = False
-        self._session = HTTP(
+        # Live endpoint for market data — testnet blocks Railway IPs with 403.
+        # Kline and tickers are public; no key needed.
+        self._market_session = HTTP(testnet=False)
+        # Testnet session kept for any future order placement — no real orders are placed.
+        self._order_session = HTTP(
             testnet=True,
             api_key=config.BYBIT_API_KEY,
             api_secret=config.BYBIT_API_SECRET,
@@ -34,13 +38,13 @@ class PaperTrader:
     # ------------------------------------------------------------------ #
 
     def _fetch_price(self) -> float:
-        resp = self._session.get_tickers(
+        resp = self._market_session.get_tickers(
             category=config.CATEGORY, symbol=config.SYMBOL
         )
         return float(resp["result"]["list"][0]["lastPrice"])
 
     def _fetch_candles(self, limit: int = 250) -> pd.DataFrame:
-        resp = self._session.get_kline(
+        resp = self._market_session.get_kline(
             category=config.CATEGORY,
             symbol=config.SYMBOL,
             interval=config.KLINE_INTERVAL,
