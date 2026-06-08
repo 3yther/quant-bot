@@ -288,6 +288,81 @@
   .badge-tp   { background: rgba(210,153,34,.15); color: var(--yellow); }
   .no-trades  { text-align: center; color: var(--subtle); padding: 24px; font-size: 13px; }
 
+  /* ── Chart Fullscreen ── */
+  .chart-card.is-fs {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+  }
+  .chart-card.is-fs .card-hdr  { flex-shrink: 0; }
+  .chart-card.is-fs .chart-body {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    padding: 12px 16px 16px;
+  }
+  .chart-card.is-fs .price-chart-wrap { flex: 1; height: auto !important; }
+  .chart-card.is-fs .macd-chart-wrap  { height: 160px; flex-shrink: 0; }
+
+  .fs-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--subtle);
+    border-radius: 4px;
+    padding: 2px 8px;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1.5;
+    transition: color .15s, border-color .15s;
+  }
+  .fs-btn:hover { color: var(--text); border-color: var(--subtle); }
+
+  /* ── Expandable trade rows ── */
+  .trade-row { cursor: pointer; }
+  .trade-row td:first-child::before {
+    content: '›';
+    display: inline-block;
+    color: var(--border);
+    margin-right: 7px;
+    font-size: 15px;
+    vertical-align: middle;
+    transition: transform .22s ease, color .15s;
+  }
+  .trade-row:hover td { background: rgba(255,255,255,.02) !important; }
+  .trade-row:hover td:first-child::before { color: var(--subtle); }
+  .trade-row.is-open td { border-bottom: none; }
+  .trade-row.is-open td:first-child::before { transform: rotate(90deg); color: var(--blue); }
+  .detail-row { display: none; }
+  .detail-inner {
+    overflow: hidden;
+    max-height: 0;
+    transition: max-height .28s cubic-bezier(.4,0,.2,1);
+    background: var(--surface2);
+    border-top: 1px solid var(--border);
+  }
+  .detail-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px 28px;
+    padding: 14px 14px 16px;
+  }
+  @media (max-width: 700px) { .detail-grid { grid-template-columns: 1fr 1fr; } }
+  .detail-label {
+    color: var(--subtle);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    margin-bottom: 3px;
+  }
+  .detail-val { font-family: var(--mono); font-size: 12px; }
+
   /* ── Footer ── */
   footer {
     text-align: center;
@@ -476,10 +551,13 @@
   </div>
 
   <!-- Live Chart -->
-  <div class="chart-card">
+  <div class="chart-card" id="chart-card">
     <div class="card-hdr">
       Live Chart &mdash; BTC/USD (4H candles, last 48)
-      <span class="badge" id="chart-badge">Loading&hellip;</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="badge" id="chart-badge">Loading&hellip;</span>
+        <button class="fs-btn" id="fs-btn" onclick="toggleFullscreen()" title="Fullscreen (F)">&#x26F6;</button>
+      </div>
     </div>
     <div class="chart-body">
       <div class="price-chart-wrap">
@@ -713,11 +791,97 @@ async function refreshBacktest() {
   } catch(e) { console.error('Backtest:', e); }
 }
 
-/* ── Trade history ── */
+/* ── Trade history (expandable rows) ── */
+let _allTrades = [];
+
+function _detailItem(label, val) {
+  return `<div><div class="detail-label">${label}</div><div class="detail-val">${val}</div></div>`;
+}
+
+function _buildDetail(t, idx) {
+  const act   = t.action;
+  const price = parseFloat(t.price);
+  const size  = parseFloat(t.size);
+  const pnl   = parseFloat(t.pnl);
+
+  // Find matching BUY by scanning forward in DESC-sorted array
+  let entryPrice = null, entryTs = null, entrySize = null;
+  for (let j = idx + 1; j < _allTrades.length; j++) {
+    if (_allTrades[j].action === 'BUY') {
+      entryPrice = parseFloat(_allTrades[j].price);
+      entryTs    = _allTrades[j].timestamp;
+      entrySize  = parseFloat(_allTrades[j].size);
+      break;
+    }
+  }
+
+  // Duration
+  let dur = '—';
+  if (act !== 'BUY' && entryTs) {
+    const ms = new Date(t.timestamp) - new Date(entryTs);
+    if (ms > 0) {
+      const d = Math.floor(ms / 86400000), h = Math.floor((ms % 86400000) / 3600000),
+            m = Math.floor((ms % 3600000) / 60000);
+      dur = d > 0 ? `${d}d ${h}h ${m}m` : h > 0 ? `${h}h ${m}m` : `${m}m`;
+    }
+  }
+
+  // P&L%
+  let pnlPctStr = '';
+  if (act !== 'BUY' && entryPrice && entrySize) {
+    const cost = entryPrice * entrySize;
+    if (cost > 0) pnlPctStr = ` (${pnl >= 0 ? '+' : ''}${(pnl / cost * 100).toFixed(2)}%)`;
+  }
+
+  const triggers = {
+    'BUY':           '4H MACD bullish &amp; 30M MACD bullish crossover',
+    'SELL':          '30M MACD bearish crossover or 4H trend turned bearish',
+    'TRAILING STOP': 'Price fell 2% below high watermark',
+    'TAKE PROFIT':   '4% gain target reached from entry',
+  };
+
+  const pnlColor = pnl >= 0 ? 'var(--green)' : 'var(--red)';
+  const pnlSign  = pnl >= 0 ? '+$' : '-$';
+  const moneyFmt = n => n.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+
+  const cells = [];
+  cells.push(_detailItem('Full Timestamp', t.timestamp.replace('T',' ').replace(/\.\d+Z?$/, '') + ' UTC'));
+  if (t.strategy) cells.push(_detailItem('Strategy', t.strategy));
+  cells.push(_detailItem('Trigger', triggers[act] || act));
+  if (act !== 'BUY' && entryPrice)
+    cells.push(_detailItem('Entry Price', `$${moneyFmt(entryPrice)}`));
+  cells.push(_detailItem(act === 'BUY' ? 'Buy Price' : 'Exit Price', `$${moneyFmt(price)}`));
+  if (act !== 'BUY')
+    cells.push(_detailItem('P&amp;L', `<span style="color:${pnlColor}">${pnlSign}${moneyFmt(Math.abs(pnl))}${pnlPctStr}</span>`));
+  cells.push(_detailItem('Duration Held', dur));
+  cells.push(_detailItem('BTC Size', `${size.toFixed(6)} BTC`));
+  cells.push(_detailItem('Balance After', `$${moneyFmt(parseFloat(t.balance))}`));
+
+  return `<div class="detail-grid">${cells.join('')}</div>`;
+}
+
+function toggleDetail(idx) {
+  const mainRow   = $('trade-row-' + idx);
+  const detailRow = $('detail-row-' + idx);
+  const inner     = $('detail-inner-' + idx);
+  const isOpen    = mainRow.classList.contains('is-open');
+
+  if (isOpen) {
+    inner.style.maxHeight = '0';
+    mainRow.classList.remove('is-open');
+    setTimeout(() => { detailRow.style.display = 'none'; }, 280);
+  } else {
+    detailRow.style.display = 'table-row';
+    mainRow.classList.add('is-open');
+    requestAnimationFrame(() => { inner.style.maxHeight = inner.scrollHeight + 'px'; });
+  }
+}
+
 async function refreshTrades() {
   try {
     const r      = await fetch('/api/trades');
     const trades = await r.json();
+    _allTrades = trades;
     $('trade-count').textContent = trades.length;
     const tb = $('trades-body');
     if (!trades.length) {
@@ -725,14 +889,18 @@ async function refreshTrades() {
       return;
     }
     tb.innerHTML = '';
-    trades.forEach(t => {
+    trades.forEach((t, i) => {
       const pnl = parseFloat(t.pnl);
       const act = t.action;
       let bc = 'badge-sell';
       if (act === 'BUY') bc = 'badge-buy';
       else if (act === 'TAKE PROFIT') bc = 'badge-tp';
       else if (act.includes('STOP') || act.includes('TRAILING')) bc = 'badge-sl';
+
       const tr = document.createElement('tr');
+      tr.className = 'trade-row';
+      tr.id        = 'trade-row-' + i;
+      tr.onclick   = () => toggleDetail(i);
       tr.innerHTML = `
         <td style="color:var(--subtle)">${t.timestamp.replace('T',' ').slice(0,19)}</td>
         <td><span class="badge ${bc}">${act}</span></td>
@@ -743,7 +911,15 @@ async function refreshTrades() {
         </td>
         <td>$${parseFloat(t.balance).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
       `;
+
+      const detailTr = document.createElement('tr');
+      detailTr.className = 'detail-row';
+      detailTr.id        = 'detail-row-' + i;
+      detailTr.style.display = 'none';
+      detailTr.innerHTML = `<td colspan="6" style="padding:0"><div class="detail-inner" id="detail-inner-${i}">${_buildDetail(t, i)}</div></td>`;
+
       tb.appendChild(tr);
+      tb.appendChild(detailTr);
     });
   } catch(e) { console.error('Trades:', e); }
 }
@@ -868,6 +1044,30 @@ async function refreshChart() {
 
   } catch(e) { console.error('Chart:', e); }
 }
+
+/* ── Chart Fullscreen ── */
+function toggleFullscreen() {
+  const card = $('chart-card');
+  const btn  = $('fs-btn');
+  const isFs = card.classList.toggle('is-fs');
+  btn.innerHTML = isFs ? '&#x2715;' : '&#x26F6;';
+  btn.title     = isFs ? 'Exit fullscreen (Esc)' : 'Fullscreen (F)';
+  // Double rAF ensures CSS layout is applied before Chart.js measures the canvas
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    priceChart.resize();
+    macdChart.resize();
+  }));
+}
+
+document.addEventListener('keydown', e => {
+  if ((e.key === 'Escape' || e.key === 'f' || e.key === 'F') &&
+       !e.ctrlKey && !e.metaKey && !e.altKey) {
+    const card = $('chart-card');
+    const isFs = card.classList.contains('is-fs');
+    if (e.key === 'Escape' && isFs) toggleFullscreen();
+    if ((e.key === 'f' || e.key === 'F') && !isFs) toggleFullscreen();
+  }
+});
 
 /* ── Bootstrap ── */
 loadKillState();
