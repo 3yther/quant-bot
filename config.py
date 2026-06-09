@@ -20,7 +20,7 @@ CG_TREND_DAYS    = 30        # 4h candles for multi-timeframe trend MACD
 CG_ENTRY_DAYS    = 2         # 30-min candles for multi-timeframe entry MACD
 
 BACKTEST_DAYS    = 90
-INITIAL_BALANCE  = 10000.0   # Paper trading starting USDT
+INITIAL_BALANCE  = 1000.0    # Paper trading starting USDT
 TRADE_SIZE_PCT   = 0.10      # Risk 10% of current balance per trade
 STOP_LOSS_PCT    = 0.02      # Trailing stop: 2% below high watermark
 TAKE_PROFIT_PCT  = 0.04      # Close position if up 4% from entry
